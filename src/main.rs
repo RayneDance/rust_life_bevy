@@ -1,0 +1,238 @@
+use bevy::{
+    prelude::*,
+    render::camera::Viewport,
+    color::palettes::{
+        css::{GREEN, BLACK},
+    },
+};
+
+use bevy::ecs::relationship::RelationshipSourceCollection;
+use bevy::prelude::ops::powf;
+use crate::cell::{CellMesh, Cells};
+use rand::Rng;
+
+mod cell;
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins.set(bevy::log::LogPlugin {
+            ..default()
+        }))
+        .insert_resource(Cells(Vec::new()))
+        .insert_resource(CellMesh(
+            Handle::default(),
+        ))
+        .add_systems(Startup, setup)
+        .add_systems(Update, update_viewport)
+        .add_systems(Update, game_of_life)
+        .add_systems(FixedUpdate, (controls, reset_request))
+        .run();
+}
+
+fn game_of_life(
+    cell_ids: Res<Cells>,
+    mut cell_comps: Query<(&mut cell::CellAlive, &mut MeshMaterial2d<ColorMaterial>, &mut Transform)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let mut next_states: Vec<bool> = Vec::with_capacity(62_500);
+    let cells = &cell_ids.0;
+    let grid_height = 250;
+    let grid_width = 250;
+
+    for i in 0..cells.len() {
+        let entity_id = cells[i];
+        let current_row = i / grid_width;
+        let current_col = i % grid_width;
+        let mut live_neighbors = 0;
+
+        for dr in -1..=1 {
+            for dc in -1..=1 {
+                if dr == 0 && dc == 0 {
+                    continue;
+                }
+
+                let mut neighbor_row_signed = current_row as i32 + dr;
+                let mut neighbor_col_signed = current_col as i32 + dc;
+
+                if neighbor_row_signed < 0 {
+                    neighbor_row_signed = grid_height as i32 - 1;
+                } else if neighbor_row_signed >= grid_height as i32 {
+                    neighbor_row_signed = 0;
+                }
+
+                if neighbor_col_signed < 0 {
+                    neighbor_col_signed = grid_width as i32 - 1;
+                } else if neighbor_col_signed >= grid_width as i32 {
+                    neighbor_col_signed = 0;
+                }
+
+                let neighbor_row = neighbor_row_signed as usize;
+                let neighbor_col = neighbor_col_signed as usize;
+                let neighbor_flat_index = neighbor_row * grid_width + neighbor_col;
+
+                if neighbor_flat_index < cells.len() {
+                    let neighbor_entity_id = cells[neighbor_flat_index];
+                    if let Ok((neighbor_alive_comp, _, _)) = cell_comps.get(neighbor_entity_id) {
+                        if neighbor_alive_comp.0 {
+                            live_neighbors += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        let current_cell_is_alive = match cell_comps.get(entity_id) {
+            Ok((alive_comp, _, _)) => alive_comp.0,
+            Err(_) => {
+                error!("Current Entity {:?} could not be read. Treating as dead.", entity_id);
+                false
+            }
+        };
+
+        let goes_to_next_state_alive = if current_cell_is_alive {
+            live_neighbors == 2 || live_neighbors == 3
+        } else {
+            live_neighbors == 3
+        };
+        next_states.push(goes_to_next_state_alive);
+    }
+
+    for i in 0..cells.len() {
+        let entity_id = cells[i];
+        let new_alive_status = next_states[i];
+
+        if let Ok((mut alive_comp, material_comp, _transform)) = cell_comps.get_mut(entity_id) {
+            if alive_comp.0 != new_alive_status {
+                alive_comp.0 = new_alive_status;
+                let material_handle = &material_comp.0; // Access the handle from MeshMaterial2d
+                if let Some(material_asset) = materials.get_mut(material_handle) {
+                    material_asset.color = if new_alive_status {
+                        Color::from(GREEN)
+                    } else {
+                        Color::from(BLACK)
+                    };
+                }
+            }
+        }
+    }
+}
+
+fn reset_request(
+    mut cell_comps: Query<(&mut cell::CellAlive, &mut MeshMaterial2d<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    input: Res<ButtonInput<KeyCode>>,
+) {
+    if input.just_pressed(KeyCode::KeyR) {
+        let mut rng = rand::rng();
+        for (mut alive_comp, material) in cell_comps.iter_mut() {
+            alive_comp.0 = rng.random_bool(0.7); // Reset all cells to dead
+            let material_handle = &material.0;
+            if let Some(material_asset) = materials.get_mut(material_handle) {
+                if alive_comp.0 {
+                    material_asset.color = Color::from(GREEN); // Change color to green if alive
+                } else {
+                    material_asset.color = Color::from(BLACK); // Change color to black if dead
+                }
+            }
+        }
+    }
+}
+
+
+fn controls(
+    mut camera_query: Query<(&mut Camera, &mut Transform, &mut Projection)>,
+    window: Query<&Window>,
+    input: Res<ButtonInput<KeyCode>>,
+    time: Res<Time<Fixed>>,
+){
+
+    let Ok(_) = window.single() else {
+        return;
+    };
+    let Ok((mut _camera, mut transform, mut projection)) = camera_query.single_mut() else {
+        return;
+    };
+    let fspeed = 600.0 * time.delta_secs();
+
+    if input.pressed(KeyCode::KeyW) {
+        transform.translation.y += fspeed;
+    }
+    if input.pressed(KeyCode::KeyS) {
+        transform.translation.y -= fspeed;
+    }
+    if input.pressed(KeyCode::KeyA) {
+        transform.translation.x -= fspeed;
+    }
+    if input.pressed(KeyCode::KeyD) {
+        transform.translation.x += fspeed;
+    }
+    if let Projection::Orthographic(projection2d) = &mut *projection {
+        if input.pressed(KeyCode::KeyQ) {
+            projection2d.scale *= powf(4.0f32, time.delta_secs());
+        }
+
+        if input.pressed(KeyCode::KeyE) {
+            projection2d.scale *= powf(0.25f32, time.delta_secs());
+        }
+    }
+}
+
+fn update_viewport(
+    mut camera_query: Query<&mut Camera>,
+    window: Single<&Window>,
+) {
+    let Ok(mut camera) = camera_query.single_mut() else {
+        return;
+    };
+    let physical_size = window.resolution.physical_size();
+    camera.viewport = Some(Viewport {
+        physical_size,
+        ..default()
+    });
+}
+
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut cells: ResMut<Cells>,
+    mut cell_mesh: ResMut<CellMesh>,
+    window: Single<&Window>
+) {
+    
+    let mut rng = rand::rng();
+    commands.spawn((
+        Camera2d,
+        Transform {
+            translation: Vec3::new(
+                500.,
+                500.,
+                1000.,
+            ),
+            ..default()
+        },
+        Camera {
+            viewport: Some(Viewport {
+                physical_position: UVec2::new(0, 0),
+                physical_size: window.resolution.physical_size(),
+                ..default()
+            }),
+            ..default()
+        },
+    ));
+
+    cell_mesh.0 = meshes.add(Rectangle::new(10.0, 10.0));
+    for i in 0..62_500{
+        let alive = rng.random_bool(0.7);
+        let cell_color = if alive {Color::from(GREEN)} else {Color::from(BLACK)};
+        cells.0.add(commands.spawn((
+                Mesh2d(cell_mesh.0.clone()),
+                cell::CellAlive(alive),
+                MeshMaterial2d(materials.add(cell_color)),
+                Transform::from_translation(Vec3::new(
+                    (i % 250) as f32 * 10.0,
+                    (i / 250) as f32 * 10.0,
+                    0.0,
+                )),
+        )).id());
+    }
+}
