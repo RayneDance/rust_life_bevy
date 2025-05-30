@@ -4,12 +4,33 @@ pub const GRID_HEIGHT: i32 = 250;
 pub const CELL_SIZE: f32 = 10.0;
 pub const TOTAL_CELLS: usize = (GRID_WIDTH * GRID_HEIGHT) as usize;
 
+// Pastel color palette
+pub const PASTEL_MINT: Color = Color::rgb(0.6, 0.9, 0.7);
+pub const PASTEL_LAVENDER: Color = Color::rgb(0.8, 0.7, 0.9);
+pub const PASTEL_PEACH: Color = Color::rgb(1.0, 0.8, 0.7);
+pub const PASTEL_SKY: Color = Color::rgb(0.7, 0.8, 0.9);
+pub const PASTEL_LEMON: Color = Color::rgb(1.0, 0.9, 0.6);
+pub const PASTEL_ROSE: Color = Color::rgb(0.9, 0.7, 0.8);
+pub const PASTEL_CORAL: Color = Color::rgb(1.0, 0.7, 0.6);
+pub const PASTEL_AQUA: Color = Color::rgb(0.6, 0.9, 0.8);
+
+lazy_static::lazy_static! {
+    pub static ref CELL_COLORS: Vec<Color> = vec![
+        PASTEL_MINT,
+        PASTEL_LAVENDER,
+        PASTEL_PEACH,
+        PASTEL_SKY,
+        PASTEL_LEMON,
+        PASTEL_ROSE,
+        PASTEL_CORAL,
+        PASTEL_AQUA,
+    ];
+}
+
 use bevy::{
     prelude::*,
     render::camera::Viewport,
-    color::palettes::{
-        css::{GREEN, BLACK},
-    },
+    color::palettes::css::BLACK,
 };
 
 use bevy::ecs::relationship::RelationshipSourceCollection;
@@ -109,11 +130,16 @@ fn game_of_life(
                 alive_comp.0 = new_alive_status;
                 let material_handle = &material_comp.0; // Access the handle from MeshMaterial2d
                 if let Some(material_asset) = materials.get_mut(material_handle) {
-                    material_asset.color = if new_alive_status {
-                        Color::from(GREEN)
-                    } else {
-                        Color::from(BLACK)
-                    };
+                    if new_alive_status && !alive_comp.0 {
+                        // Cell becoming alive - assign random pastel color
+                        let mut rng = rand::rng();
+                        let color_idx = rng.gen_range(0..CELL_COLORS.len());
+                        material_asset.color = CELL_COLORS[color_idx];
+                    } else if !new_alive_status {
+                        // Cell dying - turn black
+                        material_asset.color = Color::from(BLACK);
+                    }
+                    // If cell stays alive, keep its current color
                 }
             }
         }
@@ -128,13 +154,14 @@ fn reset_request(
     if input.just_pressed(KeyCode::KeyR) {
         let mut rng = rand::rng();
         for (mut alive_comp, material) in cell_comps.iter_mut() {
-            alive_comp.0 = rng.random_bool(0.7); // Reset all cells to dead
+            alive_comp.0 = rng.random_bool(0.7);
             let material_handle = &material.0;
             if let Some(material_asset) = materials.get_mut(material_handle) {
                 if alive_comp.0 {
-                    material_asset.color = Color::from(GREEN); // Change color to green if alive
+                    let color_idx = rng.gen_range(0..CELL_COLORS.len());
+                    material_asset.color = CELL_COLORS[color_idx];
                 } else {
-                    material_asset.color = Color::from(BLACK); // Change color to black if dead
+                    material_asset.color = Color::from(BLACK);
                 }
             }
         }
@@ -227,7 +254,8 @@ fn setup(
     cell_mesh.0 = meshes.add(Rectangle::new(CELL_SIZE, CELL_SIZE));
     for i in 0..TOTAL_CELLS {
         let alive = rng.random_bool(0.7);
-        let cell_color = if alive {Color::from(GREEN)} else {Color::from(BLACK)};
+        let color_idx = rng.gen_range(0..CELL_COLORS.len());
+        let cell_color = if alive { CELL_COLORS[color_idx] } else { Color::from(BLACK) };
         cells.0.add(commands.spawn((
                 Mesh2d(cell_mesh.0.clone()),
                 cell::CellAlive(alive),
