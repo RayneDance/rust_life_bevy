@@ -1,3 +1,9 @@
+// Global constants for board configuration
+pub const GRID_WIDTH: i32 = 250;
+pub const GRID_HEIGHT: i32 = 250;
+pub const CELL_SIZE: f32 = 10.0;
+pub const TOTAL_CELLS: usize = (GRID_WIDTH * GRID_HEIGHT) as usize;
+
 use bevy::{
     prelude::*,
     render::camera::Viewport,
@@ -33,15 +39,13 @@ fn game_of_life(
     mut cell_comps: Query<(&mut cell::CellAlive, &mut MeshMaterial2d<ColorMaterial>, &mut Transform)>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut next_states: Vec<bool> = Vec::with_capacity(62_500);
+    let mut next_states: Vec<bool> = Vec::with_capacity(TOTAL_CELLS);
     let cells = &cell_ids.0;
-    let grid_height = 250;
-    let grid_width = 250;
 
     for i in 0..cells.len() {
         let entity_id = cells[i];
-        let current_row = i / grid_width;
-        let current_col = i % grid_width;
+        let current_row = i / GRID_WIDTH as usize;
+        let current_col = i % GRID_WIDTH as usize;
         let mut live_neighbors = 0;
 
         for dr in -1..=1 {
@@ -54,20 +58,20 @@ fn game_of_life(
                 let mut neighbor_col_signed = current_col as i32 + dc;
 
                 if neighbor_row_signed < 0 {
-                    neighbor_row_signed = grid_height as i32 - 1;
-                } else if neighbor_row_signed >= grid_height as i32 {
+                    neighbor_row_signed = GRID_HEIGHT - 1;
+                } else if neighbor_row_signed >= GRID_HEIGHT {
                     neighbor_row_signed = 0;
                 }
 
                 if neighbor_col_signed < 0 {
-                    neighbor_col_signed = grid_width as i32 - 1;
-                } else if neighbor_col_signed >= grid_width as i32 {
+                    neighbor_col_signed = GRID_WIDTH - 1;
+                } else if neighbor_col_signed >= GRID_WIDTH {
                     neighbor_col_signed = 0;
                 }
 
                 let neighbor_row = neighbor_row_signed as usize;
                 let neighbor_col = neighbor_col_signed as usize;
-                let neighbor_flat_index = neighbor_row * grid_width + neighbor_col;
+                let neighbor_flat_index = neighbor_row * GRID_WIDTH as usize + neighbor_col;
 
                 if neighbor_flat_index < cells.len() {
                     let neighbor_entity_id = cells[neighbor_flat_index];
@@ -220,8 +224,8 @@ fn setup(
         },
     ));
 
-    cell_mesh.0 = meshes.add(Rectangle::new(10.0, 10.0));
-    for i in 0..62_500{
+    cell_mesh.0 = meshes.add(Rectangle::new(CELL_SIZE, CELL_SIZE));
+    for i in 0..TOTAL_CELLS {
         let alive = rng.random_bool(0.7);
         let cell_color = if alive {Color::from(GREEN)} else {Color::from(BLACK)};
         cells.0.add(commands.spawn((
@@ -229,8 +233,8 @@ fn setup(
                 cell::CellAlive(alive),
                 MeshMaterial2d(materials.add(cell_color)),
                 Transform::from_translation(Vec3::new(
-                    (i % 250) as f32 * 10.0,
-                    (i / 250) as f32 * 10.0,
+                    (i % GRID_WIDTH as usize) as f32 * CELL_SIZE,
+                    (i / GRID_WIDTH as usize) as f32 * CELL_SIZE,
                     0.0,
                 )),
         )).id());
